@@ -1,352 +1,240 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ---------- BASIC CONFIG ----------
 st.set_page_config(
-    page_title="B2B Sales Analytics Dashboard",
+    page_title="B2B Sales Automation Dashboard",
     page_icon="📊",
-    layout="wide",
+    layout="wide"
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-    .kpi-card {
-        background: linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%);
-        border-radius: 12px;
-        padding: 20px 24px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-        margin-bottom: 10px;
-    }
-    .kpi-label {
-        font-size: 13px;
-        font-weight: 500;
-        opacity: 0.85;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        margin-bottom: 8px;
-    }
-    .kpi-value {
-        font-size: 32px;
-        font-weight: 700;
-        line-height: 1;
-    }
-    .kpi-sub {
-        font-size: 12px;
-        opacity: 0.7;
-        margin-top: 6px;
-    }
-    .section-header {
-        font-size: 18px;
-        font-weight: 700;
-        color: #1e3a5f;
-        border-left: 4px solid #2d6a9f;
-        padding-left: 12px;
-        margin: 24px 0 14px 0;
-    }
-    .insight-box {
-        background: #f0f6ff;
-        border: 1px solid #c3d9f7;
-        border-radius: 10px;
-        padding: 16px 20px;
-        margin-bottom: 10px;
-        color: #1e3a5f;
-    }
-    .insight-box strong { color: #2d6a9f; }
-    .stApp { background-color: #f8fafc; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ── Load data ─────────────────────────────────────────────────────────────────
 @st.cache_data
-def load_data():
-    df = pd.read_excel("B2B_Leads_Dataset_1000Records.xlsx")
-    df["Converted"] = (df["Status"] == "Converted").astype(int)
+def load_data(path: str):
+    df = pd.read_excel(path)
+    df.columns = df.columns.str.strip()
+    df["Status"] = df["Status"].astype(str).str.strip().str.title()
+    df["Revenue"] = pd.to_numeric(df["Revenue"], errors="coerce")
+    df["Follow_Up_Time"] = pd.to_numeric(df["Follow_Up_Time"], errors="coerce")
     return df
 
-df = load_data()
+# ---------- SIDEBAR ----------
+st.sidebar.title("Settings")
 
-# ── Sidebar Filters ───────────────────────────────────────────────────────────
-with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/bar-chart.png", width=60)
-    st.title("🔎 Filters")
-    st.markdown("---")
+data_file = st.sidebar.text_input(
+    "Excel file path",
+    value="B2B_Leads_Dataset_1000Records.xlsx"
+)
 
-    regions = ["All"] + sorted(df["Region"].unique().tolist())
-    sel_region = st.multiselect("Region", options=regions[1:], default=regions[1:])
+try:
+    df = load_data(data_file)
+except Exception as e:
+    st.error(f"Error loading file: {e}")
+    st.stop()
 
-    industries = sorted(df["Industry"].unique().tolist())
-    sel_industry = st.multiselect("Industry", options=industries, default=industries)
+st.sidebar.success("Data loaded successfully!")
 
-    sources = sorted(df["Lead_Source"].unique().tolist())
-    sel_source = st.multiselect("Lead Source", options=sources, default=sources)
+# Filter widgets
+regions = ["All"] + sorted(df["Region"].dropna().unique().tolist())
+industries = ["All"] + sorted(df["Industry"].dropna().unique().tolist())
+sources = ["All"] + sorted(df["Lead_Source"].dropna().unique().tolist())
 
-    st.markdown("---")
-    st.caption("B2B Sales Analytics · 2024")
+selected_region = st.sidebar.selectbox("Filter by Region", regions)
+selected_industry = st.sidebar.selectbox("Filter by Industry", industries)
+selected_source = st.sidebar.selectbox("Filter by Lead Source", sources)
 
 # Apply filters
-filtered = df[
-    df["Region"].isin(sel_region) &
-    df["Industry"].isin(sel_industry) &
-    df["Lead_Source"].isin(sel_source)
-]
+filtered_df = df.copy()
+if selected_region != "All":
+    filtered_df = filtered_df[filtered_df["Region"] == selected_region]
+if selected_industry != "All":
+    filtered_df = filtered_df[filtered_df["Industry"] == selected_industry]
+if selected_source != "All":
+    filtered_df = filtered_df[filtered_df["Lead_Source"] == selected_source]
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("## 📊 B2B Sales Automation & Analytics Dashboard")
-st.markdown(f"Showing **{len(filtered):,}** of **{len(df):,}** total leads based on current filters.")
+# ---------- KPI CARDS ----------
+st.title("AI-Driven B2B Sales Dashboard")
+
+total_leads = len(filtered_df)
+converted_leads = (filtered_df["Status"] == "Converted").sum()
+conversion_rate = (converted_leads / total_leads * 100) if total_leads > 0 else 0
+avg_follow_up = filtered_df["Follow_Up_Time"].mean()
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Total Leads", f"{total_leads}")
+col2.metric("Converted Leads", f"{converted_leads}")
+col3.metric("Conversion Rate (%)", f"{conversion_rate:.2f}")
+col4.metric("Average Follow-up Time (hrs)", f"{avg_follow_up:.2f}" if pd.notnull(avg_follow_up) else "N/A")
+
 st.markdown("---")
 
-# ── KPI Cards ─────────────────────────────────────────────────────────────────
-total      = len(filtered)
-converted  = filtered["Converted"].sum()
-conv_rate  = (converted / total * 100) if total else 0
-avg_follow = filtered["Follow_Up_Time"].mean() if total else 0
-total_rev  = filtered["Revenue"].sum()
+# ---------- VISUALIZATIONS ----------
 
-k1, k2, k3, k4, k5 = st.columns(5)
-
-with k1:
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">Total Leads</div>
-        <div class="kpi-value">{total:,}</div>
-    </div>""", unsafe_allow_html=True)
-
-with k2:
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">Converted Leads</div>
-        <div class="kpi-value">{converted:,}</div>
-    </div>""", unsafe_allow_html=True)
-
-with k3:
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">Conversion Rate</div>
-        <div class="kpi-value">{conv_rate:.1f}%</div>
-    </div>""", unsafe_allow_html=True)
-
-with k4:
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">Avg Follow-Up Time</div>
-        <div class="kpi-value">{avg_follow:.1f}h</div>
-    </div>""", unsafe_allow_html=True)
-
-with k5:
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">Total Revenue</div>
-        <div class="kpi-value">${total_rev/1e6:.2f}M</div>
-    </div>""", unsafe_allow_html=True)
-
-# ── Charts Row 1 ──────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">📍 Regional & Industry Analysis</div>', unsafe_allow_html=True)
-
-col1, col2 = st.columns(2)
-
-with col1:
-    region_data = (
-        filtered.groupby("Region")
-        .agg(Total=("Lead_ID", "count"), Converted=("Converted", "sum"))
-        .reset_index()
-    )
-    region_data["Not Converted"] = region_data["Total"] - region_data["Converted"]
-    region_data = region_data.sort_values("Total", ascending=False)
-
+# Leads by Region (Bar Chart)
+st.subheader("Leads by Region")
+if not filtered_df.empty:
+    leads_by_region = filtered_df.groupby("Region")["Lead_ID"].count().reset_index()
+    leads_by_region = leads_by_region.sort_values("Lead_ID", ascending=False)
     fig_region = px.bar(
-        region_data, x="Region", y=["Converted", "Not Converted"],
-        title="Leads by Region (Converted vs Not Converted)",
-        color_discrete_map={"Converted": "#2d6a9f", "Not Converted": "#b0c4de"},
-        barmode="stack",
-        template="plotly_white",
+        leads_by_region,
+        x="Region",
+        y="Lead_ID",
+        labels={"Lead_ID": "Number of Leads"},
+        color="Region",
+        title="Number of Leads by Region"
     )
-    fig_region.update_layout(legend_title="Status", title_font_size=14)
     st.plotly_chart(fig_region, use_container_width=True)
+else:
+    st.info("No data available for the selected filters.")
 
-with col2:
-    ind_data = (
-        filtered.groupby("Industry")
-        .agg(Total=("Lead_ID", "count"), Converted=("Converted", "sum"))
-        .reset_index()
+st.markdown("---")
+
+# Conversion Rate by Industry
+st.subheader("Conversion Rate by Industry")
+if not filtered_df.empty:
+    conv_by_industry = (
+        filtered_df
+        .groupby("Industry")
+        .apply(lambda x: (x["Status"] == "Converted").mean() * 100)
+        .reset_index(name="Conversion_Rate")
     )
-    ind_data["Conversion Rate (%)"] = (ind_data["Converted"] / ind_data["Total"] * 100).round(1)
-    ind_data = ind_data.sort_values("Conversion Rate (%)", ascending=True)
-
-    fig_ind = px.bar(
-        ind_data, x="Conversion Rate (%)", y="Industry",
-        orientation="h",
-        title="Conversion Rate by Industry (%)",
-        color="Conversion Rate (%)",
-        color_continuous_scale="Blues",
-        template="plotly_white",
-        text="Conversion Rate (%)",
+    conv_by_industry = conv_by_industry.sort_values("Conversion_Rate", ascending=False)
+    fig_industry = px.bar(
+        conv_by_industry,
+        x="Industry",
+        y="Conversion_Rate",
+        labels={"Conversion_Rate": "Conversion Rate (%)"},
+        color="Industry",
+        title="Conversion Rate by Industry"
     )
-    fig_ind.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    fig_ind.update_layout(coloraxis_showscale=False, title_font_size=14)
-    st.plotly_chart(fig_ind, use_container_width=True)
+    st.plotly_chart(fig_industry, use_container_width=True)
+else:
+    st.info("No data available for conversion rate by industry.")
 
-# ── Charts Row 2 ──────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">💰 Revenue & Lead Source Analysis</div>', unsafe_allow_html=True)
+st.markdown("---")
 
-col3, col4 = st.columns(2)
-
-with col3:
-    # Revenue trend by Industry (sorted)
-    rev_data = (
-        filtered.groupby("Industry")["Revenue"]
-        .sum()
-        .reset_index()
-        .sort_values("Revenue", ascending=False)
+# Revenue Trend (Line Chart)
+st.subheader("Revenue Trend (by Lead_ID order)")
+if not filtered_df.empty:
+    revenue_trend = filtered_df.sort_values("Lead_ID")
+    fig_revenue = px.line(
+        revenue_trend,
+        x="Lead_ID",
+        y="Revenue",
+        title="Revenue Trend (Sequence of Leads)",
+        labels={"Revenue": "Revenue", "Lead_ID": "Lead ID"},
     )
-    rev_data["Revenue ($K)"] = (rev_data["Revenue"] / 1000).round(1)
+    st.plotly_chart(fig_revenue, use_container_width=True)
+else:
+    st.info("No data available for revenue trend.")
 
-    fig_rev = px.line(
-        rev_data, x="Industry", y="Revenue ($K)",
-        title="Revenue by Industry ($K)",
-        markers=True,
-        template="plotly_white",
-        color_discrete_sequence=["#2d6a9f"],
+st.markdown("---")
+
+# Lead Source Analysis
+st.subheader("Lead Source Analysis")
+if not filtered_df.empty:
+    leads_by_source = (
+        filtered_df.groupby("Lead_Source")["Lead_ID"].count().reset_index(name="Lead_Count")
     )
-    fig_rev.update_traces(line_width=3, marker_size=8)
-    fig_rev.update_layout(title_font_size=14)
-    st.plotly_chart(fig_rev, use_container_width=True)
-
-with col4:
-    src_data = (
-        filtered.groupby("Lead_Source")
-        .agg(Total=("Lead_ID", "count"), Converted=("Converted", "sum"))
-        .reset_index()
+    leads_by_source = leads_by_source.sort_values("Lead_Count", ascending=False)
+    fig_source = px.bar(
+        leads_by_source,
+        x="Lead_Source",
+        y="Lead_Count",
+        labels={"Lead_Count": "Number of Leads"},
+        color="Lead_Source",
+        title="Number of Leads by Source"
     )
-    src_data["Conv Rate"] = (src_data["Converted"] / src_data["Total"] * 100).round(1)
+    st.plotly_chart(fig_source, use_container_width=True)
+else:
+    st.info("No data available for lead source analysis.")
 
-    fig_src = px.scatter(
-        src_data, x="Total", y="Conv Rate",
-        size="Total", color="Lead_Source",
-        title="Lead Source Analysis (Volume vs Conversion Rate)",
-        labels={"Total": "Total Leads", "Conv Rate": "Conversion Rate (%)"},
-        template="plotly_white",
-        size_max=50,
-        text="Lead_Source",
+st.markdown("---")
+
+# ---------- BUSINESS INSIGHTS (Part D) ----------
+
+st.header("Business Insights & Recommendations")
+
+if not df.empty:
+    # 1. Region with highest conversion rate
+    conv_by_region = (
+        df
+        .groupby("Region")
+        .apply(lambda x: (x["Status"] == "Converted").mean() * 100)
+        .reset_index(name="Conversion_Rate")
     )
-    fig_src.update_traces(textposition="top center")
-    fig_src.update_layout(showlegend=False, title_font_size=14)
-    st.plotly_chart(fig_src, use_container_width=True)
 
-# ── Follow-Up Time Analysis ───────────────────────────────────────────────────
-st.markdown('<div class="section-header">⏱️ Follow-Up Time vs Conversion</div>', unsafe_allow_html=True)
+    if not conv_by_region.empty:
+        best_region_row = conv_by_region.sort_values("Conversion_Rate", ascending=False).iloc[0]
+        best_region = best_region_row["Region"]
+        best_region_rate = best_region_row["Conversion_Rate"]
+        st.write(f"1. Region with highest conversion rate: **{best_region}** ({best_region_rate:.2f}%).")
+    else:
+        st.write("1. Not enough data to calculate region conversion rates.")
 
-col5, col6 = st.columns(2)
-
-with col5:
-    bins = pd.cut(filtered["Follow_Up_Time"], bins=[0, 12, 24, 48, 72, 96], 
-                  labels=["0–12h", "12–24h", "24–48h", "48–72h", "72–96h"])
-    followup_data = (
-        filtered.groupby(bins, observed=True)
-        .agg(Total=("Lead_ID", "count"), Converted=("Converted", "sum"))
-        .reset_index()
+    # 2. Best performing lead source
+    conv_by_source = (
+        df
+        .groupby("Lead_Source")
+        .apply(lambda x: (x["Status"] == "Converted").mean() * 100)
+        .reset_index(name="Conversion_Rate")
     )
-    followup_data["Conv Rate (%)"] = (followup_data["Converted"] / followup_data["Total"] * 100).round(1)
-    followup_data.columns = ["Time Bucket", "Total", "Converted", "Conv Rate (%)"]
+    if not conv_by_source.empty:
+        best_source_row = conv_by_source.sort_values("Conversion_Rate", ascending=False).iloc[0]
+        best_source = best_source_row["Lead_Source"]
+        best_source_rate = best_source_row["Conversion_Rate"]
+        st.write(f"2. Best performing lead source: **{best_source}** ({best_source_rate:.2f}%).")
+    else:
+        st.write("2. Not enough data to calculate lead source performance.")
 
-    fig_ft = px.bar(
-        followup_data, x="Time Bucket", y="Conv Rate (%)",
-        title="Conversion Rate by Follow-Up Time Window",
-        color="Conv Rate (%)",
-        color_continuous_scale="Blues",
-        template="plotly_white",
-        text="Conv Rate (%)",
-    )
-    fig_ft.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    fig_ft.update_layout(coloraxis_showscale=False, title_font_size=14)
-    st.plotly_chart(fig_ft, use_container_width=True)
+    # 3. Relationship between follow-up time and conversion
+    st.subheader("Follow-up Time vs Conversion")
+    conversion_time = df[["Follow_Up_Time", "Status"]].dropna()
+    if not conversion_time.empty:
+        avg_time_converted = conversion_time[conversion_time["Status"] == "Converted"]["Follow_Up_Time"].mean()
+        avg_time_not_converted = conversion_time[conversion_time["Status"] == "Not Converted"]["Follow_Up_Time"].mean()
 
-with col6:
-    fig_box = px.box(
-        filtered, x="Status", y="Follow_Up_Time",
-        color="Status",
-        title="Follow-Up Time Distribution by Conversion Status",
-        color_discrete_map={"Converted": "#2d6a9f", "Not Converted": "#b0c4de"},
-        template="plotly_white",
-    )
-    fig_box.update_layout(showlegend=False, title_font_size=14)
-    st.plotly_chart(fig_box, use_container_width=True)
+        st.write(
+            f"- Average follow-up time for **Converted** leads: {avg_time_converted:.2f} hours."
+        )
+        st.write(
+            f"- Average follow-up time for **Not Converted** leads: {avg_time_not_converted:.2f} hours."
+        )
 
-# ── Business Insights ─────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">💡 Business Insights & Recommendations</div>', unsafe_allow_html=True)
+        if avg_time_converted < avg_time_not_converted:
+            st.write(
+                "3. Insight: Faster follow-up is associated with higher conversion, "
+                "because converted leads have a lower average follow-up time."
+            )
+        else:
+            st.write(
+                "3. Insight: Converted leads do not show a clearly lower follow-up time "
+                "than non-converted leads. Other factors may be more important."
+            )
 
-# Compute insights dynamically from filtered data
-best_region = (
-    filtered.groupby("Region")
-    .apply(lambda x: x["Converted"].sum() / len(x) * 100, include_groups=False)
-    .idxmax()
-)
-best_region_rate = (
-    filtered.groupby("Region")
-    .apply(lambda x: x["Converted"].sum() / len(x) * 100, include_groups=False)
-    .max()
-)
+        fig_scatter = px.box(
+            df,
+            x="Status",
+            y="Follow_Up_Time",
+            title="Distribution of Follow-up Time by Status",
+            labels={"Follow_Up_Time": "Follow-up Time (hours)"}
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+    else:
+        st.write("3. Not enough data to analyze follow-up time vs conversion.")
 
-src_conv = (
-    filtered.groupby("Lead_Source")
-    .apply(lambda x: x["Converted"].sum() / len(x) * 100, include_groups=False)
-)
-best_source = src_conv.idxmax()
-best_source_rate = src_conv.max()
+    # 4. Recommendations
+    st.subheader("Recommended Business Strategies")
+    st.markdown("""
+    1. **Prioritize best-performing region and source**  
+       Allocate more budget and sales capacity to the region and lead source with the highest conversion rates.
 
-avg_ft_conv = filtered[filtered["Status"] == "Converted"]["Follow_Up_Time"].mean()
-avg_ft_not  = filtered[filtered["Status"] == "Not Converted"]["Follow_Up_Time"].mean()
-ft_diff     = avg_ft_not - avg_ft_conv
+    2. **Reduce follow-up time for new leads**  
+       Set internal SLAs (for example, first contact within 24 hours) and use Make.com automation plus alerts to ensure quick responses.
 
-i1, i2 = st.columns(2)
-
-with i1:
-    st.markdown(f"""<div class="insight-box">
-        🏆 <strong>Q1 – Best Region:</strong> <strong>{best_region}</strong> has the highest conversion rate 
-        at <strong>{best_region_rate:.1f}%</strong>. Focus sales resources and campaigns here for maximum ROI.
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown(f"""<div class="insight-box">
-        🎯 <strong>Q2 – Best Lead Source:</strong> <strong>{best_source}</strong> delivers the highest conversion 
-        rate at <strong>{best_source_rate:.1f}%</strong>. Increase budget and effort on this channel.
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown(f"""<div class="insight-box">
-        ⏱️ <strong>Q3 – Follow-Up Impact:</strong> Converted leads are followed up 
-        <strong>{ft_diff:.1f} hours faster</strong> on average than non-converted leads 
-        (Converted avg: {avg_ft_conv:.1f}h | Not Converted avg: {avg_ft_not:.1f}h). 
-        Speed is a critical success factor.
-    </div>""", unsafe_allow_html=True)
-
-with i2:
-    st.markdown("""<div class="insight-box">
-        📌 <strong>Strategy 1 – Speed-to-Lead Protocol:</strong> Implement a rule requiring all new leads 
-        to receive a first response within <strong>12 hours</strong>. Automate immediate acknowledgement 
-        emails via Make.com the moment a form is submitted.
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="insight-box">
-        📌 <strong>Strategy 2 – Channel Reallocation:</strong> Shift 30% of marketing budget from 
-        low-performing lead sources to the top-performing channel. Use A/B testing to continuously 
-        optimize messaging on that channel.
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="insight-box">
-        📌 <strong>Strategy 3 – Regional Playbook:</strong> Study what the best-performing region 
-        does differently (sales scripts, pricing, timing) and replicate that playbook in underperforming 
-        regions with localized training and incentives.
-    </div>""", unsafe_allow_html=True)
-
-# ── Raw Data Table ────────────────────────────────────────────────────────────
-with st.expander("🗂️ View Raw Data (Filtered)"):
-    st.dataframe(
-        filtered.style.format({"Revenue": "${:,.2f}", "Follow_Up_Time": "{:.1f}h"}),
-        use_container_width=True,
-        height=300,
-    )
-    st.download_button(
-        "⬇️ Download Filtered Data as CSV",
-        data=filtered.to_csv(index=False),
-        file_name="filtered_leads.csv",
-        mime="text/csv",
-    )
+    3. **Segment and personalize outreach**  
+       Use industry and lead source filters to create tailored messaging and offers, and continuously test what works best in each segment.
+    """)
+else:
+    st.write("No data available for insights.")
